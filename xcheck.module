@@ -1,0 +1,224 @@
+<?php
+
+/**
+ * @file
+ * This is the file description for x-check module.
+ *
+ * In this more verbose, multi-line description, you can specify what this
+ * file does exactly. Make sure to wrap your documentation in column 78 so
+ * that the file can be displayed nicely in default-sized consoles.
+ */
+
+/**
+ * Implements hook_menu().
+ */
+function xcheck_menu() {
+  $items = array();
+  $items['admin/settings/xcheck'] = array(
+    'title' => 'Over 18 x-check',
+    'description' => 'Manage how Over 18 x-check is used on your site.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('xcheck_admin_settings'),
+    'file' => 'xcheck.admin.inc',
+    'access arguments' => array('administer site configuration'),
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_theme().
+ */
+function xcheck_theme($existing, $type, $theme, $path) {
+  return array(
+    'xcheck' => array(
+      'arguments' => array('id' => NULL),
+      'template' => 'xcheck',
+    ),
+  );
+}
+
+
+
+/**
+ * Utility function to tell whether a type is enabled for xcheck
+ */
+function xcheck_type_enabled($type) {
+  if (is_object($type)) {
+    $type = $type->type;
+  }
+  return variable_get('xcheck_' . $type, 0) ? TRUE : FALSE;
+}
+
+/**
+ * Implements hook_form_alter().
+ */
+function xcheck_form_alter(&$form, &$form_state, $form_id) {
+  // content type settings form
+  if ($form_id == 'node_type_form' && isset($form['identity']['type'])) {
+    $form['workflow']['xcheck'] = array(
+      '#type' => 'radios',
+      '#title' => t('Over 18 x-check'),
+      '#default_value' => variable_get('xcheck_' . $form['#node_type']->type, 0),
+      '#options' => array(0 => t('Disabled'), 1 => t('Enabled')),
+      '#description' => t('Should add Over 18 x-check to this node type?'),
+    );
+    $disabled  = !variable_get('xcheck_' . $form['#node_type']->type, 0);
+    $op_fields = array('- None -');
+    $info      = _content_type_info();
+    if (!empty($info['content types'][$form['#node_type']->type]['fields'])) {
+      foreach ($info['content types'][$form['#node_type']->type]['fields'] as $name => $field) {
+        $op_fields[$name] = $field['widget']['label'];
+      }
+    }
+    $form['xcheck'] = array(
+      '#type' => 'fieldset',
+      '#title' => t('Over 18 x-check'),
+      '#description' => t('The description appears at the top of the fieldset.'),
+      '#collapsible' => TRUE,
+      '#collapsed' => TRUE,
+      '#disabled' => $disabled,
+    );
+    if ($disabled) {
+      $form['xcheck']['#description'] .= ' <em>' . t('These will be available only when you enable Over 18 x-check in Workflow settings above.') . '</em>';
+    }
+    $form['xcheck']['xcheck_field'] = array(
+      '#type' => 'select',
+      '#title' => t('Field'),
+      '#description' => t('The field for Over 18 x-check.'),
+      '#options' => $op_fields,
+      '#default_value' => variable_get('xcheck_field_' . $form['#node_type']->type, ''),
+      '#disabled' => $disabled,
+    );
+    $form['#submit'][] = 'xcheck_node_type_form_submit';
+  }
+}
+
+function xcheck_node_type_form_submit(&$form, &$form_state) {
+  $field = array(
+    'field_name' => 'xcheck_toggle',
+    'type_name' => 'page',
+    'display_settings' =>
+    array(
+      'weight' => '10',
+      'parent' => '',
+      'label' =>
+      array(
+        'format' => 'hidden',
+      ),
+      'teaser' =>
+      array(
+        'format' => 'hidden',
+        'exclude' => 1,
+      ),
+      'full' =>
+      array(
+        'format' => 'hidden',
+        'exclude' => 1,
+      ),
+      4 =>
+      array(
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+    ),
+    'widget_active' => '1',
+    'type' => 'number_integer',
+    'required' => '0',
+    'multiple' => '0',
+    'db_storage' => '1',
+    'module' => 'number',
+    'active' => '1',
+    'locked' => '0',
+    'columns' =>
+    array(
+      'value' =>
+      array(
+        'type' => 'int',
+        'not null' => FALSE,
+        'sortable' => TRUE,
+      ),
+    ),
+    'prefix' => '',
+    'suffix' => '',
+    'min' => '',
+    'max' => '',
+    'allowed_values' => '0
+  1|Over 18 x-check',
+    'allowed_values_php' => '',
+    'widget' =>
+    array(
+      'default_value' =>
+      array(
+        0 =>
+        array(
+          'value' => NULL,
+        ),
+      ),
+      'default_value_php' => NULL,
+      'label' => 'x-check',
+      'weight' => '10',
+      'description' => '',
+      'type' => 'optionwidgets_onoff',
+      'module' => 'optionwidgets',
+    ),
+  );
+  
+  module_load_include('inc', 'content', 'includes/content.crud');
+  if (empty($form_state['values']['xcheck'])) {
+    content_field_instance_delete($field['field_name'], $form_state['values']['type']);
+  } else {
+    $field['type_name'] = $form_state['values']['type'];
+    content_field_instance_create($field);
+  }
+}
+
+/**
+ * Implements hook_nodeapi().
+ */
+function xcheck_nodeapi(&$node, $op, $teaser = NULL, $page = NULL) {
+  switch ($op) {
+    case 'load':
+      // The node is about to be loaded from the database. This hook can be used
+      // to load additional data at this time.
+      break;
+
+    case 'view':
+      // The node is about to be presented to the user. The module may change
+      // $node->body prior to presentation. This hook will be called after
+      // hook_view(), so the module may assume the node is filtered and now contains HTML.
+      if ($page && xcheck_type_enabled($node->type) && !empty($node->xcheck_toggle[0]['value'])) {
+        $xcheck_field = variable_get('xcheck_field_' . $node->type, '');
+        // todo handle check passed
+        $node->content[$xcheck_field] = array(
+          '#weight' => $node->content[$xcheck_field]['#weight'],
+          '#value'  => theme('xcheck', variable_get('xcheck_id', '')),
+        );
+      }
+        break;
+      case 'alter':
+        // The $node->content array has been rendered, so the node body or teaser
+        // is filtered and now contains HTML. This op should only be used when text
+        // substitution, filtering, or other raw text operations are necessary.
+        break;
+
+      case 'insert':
+        // The node is being created (inserted in the database).
+        break;
+
+      case 'update':
+        // The node is being updated.
+        break;
+
+      case 'validate':
+        // The user has just finished editing the node and is trying to preview or
+        // submit it. This hook can be used to check or even modify the node.
+        // Errors should be set with form_set_error().
+        break;
+
+      case 'delete':
+        // The node is being deleted.
+        break;
+    }
+  }
+

@@ -1,0 +1,18 @@
+<?php
+
+/**
+ * @file
+ * Provides the installation and uninstallation features of the x-check.
+ */
+
+/**
+ * Implements hook_uninstall().
+ */
+function xcheck_uninstall() {
+  // Remove any saved variables.
+  db_query("DELETE FROM {variable} WHERE name LIKE 'xcheck_%'");
+  cache_clear_all('variables', 'cache');
+}
+
+
+
